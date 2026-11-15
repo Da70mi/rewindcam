@@ -50,6 +50,14 @@ button{font:inherit;color:inherit;cursor:pointer}
 #vf{flex:1;min-height:0;position:relative;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden;
   border-top:2px solid #111;border-bottom:2px solid #111}
 #screen{display:block;background:#000}
+#app.full{background:#000}
+#app.full #vf{position:fixed;inset:0;border:0;z-index:0}
+#app.full .bar{position:relative;z-index:2}
+#app.full .bar.top{background:linear-gradient(rgba(0,0,0,.6),rgba(0,0,0,0));margin-top:calc(-1 * env(safe-area-inset-top));padding-top:calc(env(safe-area-inset-top) + 12px)}
+#app.full .bar.bottom{background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.6));margin-bottom:calc(-1 * env(safe-area-inset-bottom));padding-bottom:calc(env(safe-area-inset-bottom) + 16px)}
+#app.full .brand{flex:1;visibility:hidden}
+#app.full .ctl>span{color:#eee;text-shadow:0 1px 3px #000}
+#app.full #pauseBtn{bottom:calc(env(safe-area-inset-bottom) + 150px)}
 #pauseBtn{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);border:0;border-radius:999px;padding:9px 18px;
   background:rgba(20,20,22,.75);color:#fff;font-weight:800;letter-spacing:.12em;font-size:13px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 
@@ -190,7 +198,7 @@ const FILTERS = [
 const COLORS = {White:'#f6f6f6', Yellow:'#ffe14d', Red:'#ff4a3d', Green:'#5dff7a', Cyan:'#5ff3ff', Magenta:'#ff5ce1'};
 const DEFAULTS = {spoof:false, spoofDate:'1989-07-04', filter:0, title:'MY HOME VIDEOS', titleColor:'White', titleStay:false,
   newStyle:true, altFont:false, showDate:true, showTime:true, dateStyle:0, tapeSpeed:'SP', dropouts:true, tracking:true,
-  tilt:true, tapeFx:true, showStatus:true, showSpeed:true, cleanAudio:false, widescreen:false, res:720, fps:30};
+  tilt:true, tapeFx:true, showStatus:true, showSpeed:true, cleanAudio:false, widescreen:false, aspect:'4:3', rounded:false, res:720, fps:30};
 let S = Object.assign({}, DEFAULTS);
 try { Object.assign(S, JSON.parse(localStorage.getItem('rewindcam') || '{}')); } catch(e) {}
 const save = () => { try { localStorage.setItem('rewindcam', JSON.stringify(S)); } catch(e) {} };
@@ -218,7 +226,7 @@ const FS = `
 precision highp float;
 varying vec2 vUv;
 uniform sampler2D uVid, uOsd;
-uniform vec2 uRes; uniform vec2 uCrop; uniform float uMirror, uHasVid;
+uniform vec2 uRes; uniform vec2 uCrop; uniform float uMirror, uHasVid, uRound;
 uniform float uTime, uGlitch, uRoll, uTrack, uStatic, uTilt, uFx;
 uniform float uSat, uCon, uBri, uLift, uMono, uNight, uNoise, uBleed, uSharp, uBloom;
 uniform vec3 uTint;
@@ -303,6 +311,7 @@ void main(){
   // scanlines + vignette
   c*=mix(1.,.955+.045*sin(vUv.y*uRes.y*1.5708),uFx);
   vec2 q=vUv-.5; c*=1.-.32*pow(length(q*vec2(1.,.85))*1.25,2.6);
+  if(uRound>0.){vec2 hp=uRes*.5; float rad=uRound*min(uRes.x,uRes.y); vec2 rq=abs(vUv*uRes-hp)-(hp-rad); float rd=length(max(rq,0.))-rad; c*=1.-smoothstep(-1.5,1.5,rd);}
   gl_FragColor=vec4(clamp(c,0.,1.),1.);
 }`;
 let prog, U = {}, texVid, texOsd;
@@ -318,7 +327,7 @@ function initGL(){
   const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
   const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-  ['uVid','uOsd','uRes','uCrop','uMirror','uHasVid','uTime','uGlitch','uRoll','uTrack','uStatic','uTilt','uFx','uSat','uCon','uBri','uLift','uMono','uNight','uNoise','uBleed','uSharp','uTint','uBloom']
+  ['uVid','uOsd','uRes','uCrop','uMirror','uHasVid','uTime','uGlitch','uRoll','uTrack','uStatic','uTilt','uFx','uSat','uCon','uBri','uLift','uMono','uNight','uNoise','uBleed','uSharp','uTint','uBloom','uRound']
     .forEach(n => U[n] = gl.getUniformLocation(prog, n));
   const mk = unit => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -333,15 +342,20 @@ function initGL(){
 /* =================== output size / OSD canvas =================== */
 const osd = document.createElement('canvas');
 const octx = osd.getContext('2d');
+function aspectRatio(){
+  if (S.aspect === 'full'){ const a = Math.max(screen.width, screen.height) / Math.min(screen.width, screen.height); return clamp(a || 2.16, 1.5, 2.4); }
+  return S.aspect === '16:9' ? 16/9 : 4/3;
+}
 function resizeOutput(){
-  const W = S.res, H = Math.round(S.res * (S.widescreen ? 16/9 : 4/3) / 2) * 2;
+  const W = S.res, H = Math.round(S.res * aspectRatio() / 2) * 2;
+  $('#app').classList.toggle('full', S.aspect === 'full');
   cv.width = osd.width = W; cv.height = osd.height = H;
   if (gl) gl.viewport(0, 0, W, H);
   fitCanvas();
 }
 function fitCanvas(){
   const r = $('#vf').getBoundingClientRect();
-  const k = Math.min(r.width / cv.width, r.height / cv.height);
+  const k = (S.aspect === 'full' ? Math.max : Math.min)(r.width / cv.width, r.height / cv.height);
   cv.style.width = Math.floor(cv.width * k) + 'px'; cv.style.height = Math.floor(cv.height * k) + 'px';
 }
 addEventListener('resize', fitCanvas); addEventListener('orientationchange', () => setTimeout(fitCanvas, 300));
@@ -363,8 +377,9 @@ function fmtCounter(ms){ const s = Math.floor(ms / 1000); return `${Math.floor(s
 
 const OSDF = '"VT323","Courier New",monospace';
 function drawOSD(t){
-  const W = osd.width, H = osd.height, s = W / 480, c = octx;
-  c.clearRect(0, 0, W, H);
+  const full = S.aspect === 'full', oy = full ? osd.height * .12 : 0;
+  const W = osd.width, H = osd.height - oy - (full ? osd.height * .19 : 0), s = W / 480, c = octx;
+  c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, W, osd.height); c.translate(0, oy);
   c.lineJoin = 'round'; c.textBaseline = 'alphabetic';
   const txt = (str, x, y, size, align = 'left', col = '#f2f2f2') => {
     c.font = `${Math.round(size * s)}px ${OSDF}`; c.textAlign = align;
@@ -677,7 +692,8 @@ const SCHEMA = [
   ], foot:'Turn off Tape Glitch Effects to keep only the color filter look, with no lines, static or wobble.'},
   {sec:'RECORDING STUFF', items:[
     {k:'cleanAudio', t:'sw', l:"Don't Degrade Audio (Clean Audio)"},
-    {k:'widescreen', t:'sw', l:'Widescreen'},
+    {k:'aspect', t:'seg', l:'Screen Shape', opts:[['4:3','4:3'],['16:9','16:9'],['full','Full']]},
+    {k:'rounded', t:'sw', l:'Rounded Screen Corners'},
     {k:'res', t:'seg', l:'Resolution', opts:[[480,'480p'],[720,'720p'],[1080,'1080p']]},
     {k:'fps', t:'seg', l:'Frame Rate', opts:[[24,'24'],[25,'25'],[30,'30'],[50,'50'],[60,'60']]},
   ], foot:'Higher resolution and frame rates make bigger files and work your phone harder.'},
@@ -727,7 +743,7 @@ const CLASSIC = {tapeFx:true, showStatus:true, showSpeed:true, showDate:true, sh
 function applyLook(o){ Object.assign(S, o); save(); filterShowUntil = now() + 1.5; renderSettings(); toast('Look applied'); }
 function setVal(k, v, rerender){
   const old = S[k]; S[k] = v; save();
-  if (k === 'res' || k === 'widescreen'){ resizeOutput(); if (k === 'res' && mode === 'cam' && camStream) startCamera().catch(() => {}); }
+  if (k === 'res' || k === 'aspect'){ resizeOutput(); if (k === 'res' && mode === 'cam' && camStream) startCamera().catch(() => {}); }
   if (k === 'fps' && mode === 'cam' && camStream && videoTrack){ try { videoTrack.applyConstraints({frameRate:{ideal:v}}); } catch(e) {} }
   if (k === 'cleanAudio') updateAudio();
   if (k === 'tilt' && v) askMotion();
@@ -775,7 +791,7 @@ function frame(ts){
   gl.uniform1f(U.uTrack, Math.min(1, trackBase + tl * .7 + glitch * .3)); gl.uniform1f(U.uStatic, S.tracking ? 1 : 0); gl.uniform1f(U.uTilt, tl);
   gl.uniform1f(U.uSat, F.sat); gl.uniform1f(U.uCon, F.con); gl.uniform1f(U.uBri, F.bri); gl.uniform1f(U.uLift, F.lift);
   gl.uniform1f(U.uMono, F.mono || 0); gl.uniform1f(U.uNight, F.night || 0); gl.uniform1f(U.uNoise, F.noise);
-  gl.uniform1f(U.uBleed, F.bleed); gl.uniform1f(U.uSharp, F.sharp); gl.uniform1f(U.uBloom, F.bloom || 0); gl.uniform3f(U.uTint, F.tint[0], F.tint[1], F.tint[2]);
+  gl.uniform1f(U.uBleed, F.bleed); gl.uniform1f(U.uSharp, F.sharp); gl.uniform1f(U.uBloom, F.bloom || 0); gl.uniform1f(U.uRound, S.rounded ? .085 : 0); gl.uniform3f(U.uTint, F.tint[0], F.tint[1], F.tint[2]);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
