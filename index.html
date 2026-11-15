@@ -188,7 +188,7 @@ const FILTERS = [
 const COLORS = {White:'#f6f6f6', Yellow:'#ffe14d', Red:'#ff4a3d', Green:'#5dff7a', Cyan:'#5ff3ff', Magenta:'#ff5ce1'};
 const DEFAULTS = {spoof:false, spoofDate:'1989-07-04', filter:0, title:'MY HOME VIDEOS', titleColor:'White', titleStay:false,
   newStyle:true, altFont:false, showDate:true, showTime:true, dateStyle:0, tapeSpeed:'SP', dropouts:true, tracking:true,
-  tilt:true, cleanAudio:false, widescreen:false, res:720, fps:30};
+  tilt:true, tapeFx:true, showStatus:true, showSpeed:true, cleanAudio:false, widescreen:false, res:720, fps:30};
 let S = Object.assign({}, DEFAULTS);
 try { Object.assign(S, JSON.parse(localStorage.getItem('rewindcam') || '{}')); } catch(e) {}
 const save = () => { try { localStorage.setItem('rewindcam', JSON.stringify(S)); } catch(e) {} };
@@ -217,7 +217,7 @@ precision highp float;
 varying vec2 vUv;
 uniform sampler2D uVid, uOsd;
 uniform vec2 uRes; uniform vec2 uCrop; uniform float uMirror, uHasVid;
-uniform float uTime, uGlitch, uRoll, uTrack, uStatic, uTilt;
+uniform float uTime, uGlitch, uRoll, uTrack, uStatic, uTilt, uFx;
 uniform float uSat, uCon, uBri, uLift, uMono, uNight, uNoise, uBleed, uSharp;
 uniform vec3 uTint;
 float h11(float p){p=fract(p*.1031);p*=p+33.33;p*=p+p;return fract(p);}
@@ -263,6 +263,7 @@ void main(){
   // head switching at the bottom
   float hs=smoothstep(.032,0.,uv.y);
   jit+=hs*(.018+.03*h11(line+fr));
+  jit*=uFx; hs*=uFx; band*=uFx;
   vec2 p=vec2(uv.x+jit,uv.y);
 
   float bw=max(1.,uRes.x/480.)/uRes.x;
@@ -287,7 +288,7 @@ void main(){
   c+=band*step(.72,spk)*.8;
   float sl=h21(vec2(line,fr*3.1));
   float streak=step(1.-(.004*uStatic+.05*uGlitch+.02*uTilt),sl)*step(.45,h21(vec2(floor(uv.x*28.+n1*9.),line+fr)));
-  c=mix(c,vec3(.95),streak*.85);
+  c=mix(c,vec3(.95),streak*.85*uFx);
   // head switching noise
   c=mix(c,vec3(h21(gl_FragCoord.xy+fr)*.9),hs*.55);
   // scanlines + vignette
@@ -308,7 +309,7 @@ function initGL(){
   const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
   const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-  ['uVid','uOsd','uRes','uCrop','uMirror','uHasVid','uTime','uGlitch','uRoll','uTrack','uStatic','uTilt','uSat','uCon','uBri','uLift','uMono','uNight','uNoise','uBleed','uSharp','uTint']
+  ['uVid','uOsd','uRes','uCrop','uMirror','uHasVid','uTime','uGlitch','uRoll','uTrack','uStatic','uTilt','uFx','uSat','uCon','uBri','uLift','uMono','uNight','uNoise','uBleed','uSharp','uTint']
     .forEach(n => U[n] = gl.getUniformLocation(prog, n));
   const mk = unit => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -362,6 +363,7 @@ function drawOSD(t){
     c.fillStyle = col; c.fillText(str, x, y);
   };
   const m = 34 * s, blink = (t % 1) < .6;
+  if (S.showStatus){
   // cassette icon
   const cx = m, cy = 34 * s, cw = 56 * s, ch = 32 * s;
   for (const [lw, col] of [[7 * s, 'rgba(18,18,22,.85)'], [2.6 * s, '#f2f2f2']]){
@@ -381,9 +383,10 @@ function drawOSD(t){
   } else {
     txt(mode === 'file' ? 'PLAY' : 'STBY', m, 116 * s, 42, 'left', mode === 'file' ? '#f2f2f2' : '#52e05e');
   }
+  }
   const d = curDate();
-  txt(S.tapeSpeed, W - m, 70 * s, 44, 'right');
-  if (S.showTime) txt(fmtTime(d), W - m, 114 * s, 44, 'right');
+  if (S.showSpeed) txt(S.tapeSpeed, W - m, 70 * s, 44, 'right');
+  if (S.showTime) txt(fmtTime(d), W - m, (S.showSpeed ? 114 : 70) * s, 44, 'right');
   if (S.showDate) txt(fmtDate(d), W - m, H - 50 * s, 48, 'right');
   // zoom bar
   if (t < zoomShowUntil){
@@ -650,12 +653,15 @@ const SCHEMA = [
     {k:'altFont', t:'sw', l:'Alternate Titler Font'},
     {k:'showDate', t:'sw', l:'Show Date on the Video'},
     {k:'showTime', t:'sw', l:'Show Time on the Video'},
+    {k:'showStatus', t:'sw', l:'Show Tape Icon & PLAY/REC'},
+    {k:'showSpeed', t:'sw', l:'Show Tape Speed (SP)'},
     {k:'dateStyle', t:'seg', l:'Date Style', opts:[[0,'NOV 15'],[1,'15.11'],[2,'11/15']]},
     {k:'tapeSpeed', t:'seg', l:'Tape Speed', opts:[['SP','SP'],['LP','LP'],['EP','EP']]},
-    {k:'dropouts', t:'sw', l:'Really Bad Rolling Tape Dropouts'},
-    {k:'tracking', t:'sw', l:'Tracking Static Lines'},
-    {k:'tilt', t:'sw', l:'Tilting Device Makes Things Worse'},
-  ], foot:'Tilting or shaking your phone will mess up the picture.'},
+    {k:'tapeFx', t:'sw', l:'Tape Glitch Effects'},
+    {k:'dropouts', t:'sw', l:'Really Bad Rolling Tape Dropouts', when:() => S.tapeFx},
+    {k:'tracking', t:'sw', l:'Tracking Static Lines', when:() => S.tapeFx},
+    {k:'tilt', t:'sw', l:'Tilting Device Makes Things Worse', when:() => S.tapeFx},
+  ], foot:'Turn off Tape Glitch Effects to keep only the color filter look, with no lines, static or wobble.'},
   {sec:'RECORDING STUFF', items:[
     {k:'cleanAudio', t:'sw', l:"Don't Degrade Audio (Clean Audio)"},
     {k:'widescreen', t:'sw', l:'Widescreen'},
@@ -725,8 +731,8 @@ function frame(ts){
   if (zoomDir){ zoom = clamp(zoom * Math.pow(1.9, zoomDir * dt), 1, 6); zoomShowUntil = t + 1.5; }
   // tape troubles
   tilt *= Math.pow(.12, dt);
-  const tl = S.tilt ? tilt : 0;
-  if (S.dropouts && Math.random() < dt * .11){ glitch = .55 + Math.random() * .45; if (Math.random() < .3 && !rollLeft) rollLeft = 1; }
+  const tl = S.tilt && S.tapeFx ? tilt : 0;
+  if (S.tapeFx && S.dropouts && Math.random() < dt * .11){ glitch = .55 + Math.random() * .45; if (Math.random() < .3 && !rollLeft) rollLeft = 1; }
   if (tl > .75 && !rollLeft && Math.random() < dt * 2) rollLeft = 1;
   glitch = Math.max(glitch * Math.pow(.03, dt), tl * .8);
   if (rollLeft > 0){ const step = Math.min(rollLeft, dt * 2.6); roll = (roll + step) % 1; rollLeft -= step; if (rollLeft <= 1e-4){ rollLeft = 0; roll = 0; } }
@@ -747,7 +753,7 @@ function frame(ts){
   const F = FILTERS[S.filter] || FILTERS[0];
   gl.uniform2f(U.uRes, cv.width, cv.height); gl.uniform2f(U.uCrop, crop[0], crop[1]);
   gl.uniform1f(U.uMirror, mode === 'cam' && facing === 'user' ? 1 : 0); gl.uniform1f(U.uHasVid, has);
-  gl.uniform1f(U.uTime, t % 1000); gl.uniform1f(U.uGlitch, glitch); gl.uniform1f(U.uRoll, roll);
+  gl.uniform1f(U.uTime, t % 1000); gl.uniform1f(U.uGlitch, glitch); gl.uniform1f(U.uRoll, S.tapeFx ? roll : 0); gl.uniform1f(U.uFx, S.tapeFx ? 1 : 0);
   gl.uniform1f(U.uTrack, Math.min(1, trackBase + tl * .7 + glitch * .3)); gl.uniform1f(U.uStatic, S.tracking ? 1 : 0); gl.uniform1f(U.uTilt, tl);
   gl.uniform1f(U.uSat, F.sat); gl.uniform1f(U.uCon, F.con); gl.uniform1f(U.uBri, F.bri); gl.uniform1f(U.uLift, F.lift);
   gl.uniform1f(U.uMono, F.mono || 0); gl.uniform1f(U.uNight, F.night || 0); gl.uniform1f(U.uNoise, F.noise);
