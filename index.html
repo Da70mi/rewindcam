@@ -71,6 +71,8 @@ button{font:inherit;color:inherit;cursor:pointer}
   #app.full .brand{display:block;flex:1;visibility:hidden}
   #app.full #pauseBtn{bottom:calc(env(safe-area-inset-bottom) + 16px)}
 }
+#focusBox{position:absolute;left:0;top:0;width:74px;height:74px;border:2px solid #ffd60a;border-radius:4px;pointer-events:none;opacity:0;transform:translate(-50%,-50%) scale(1.4);transition:transform .25s,opacity .25s;z-index:1}
+#focusBox.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
 #pauseBtn{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);border:0;border-radius:999px;padding:9px 18px;
   background:rgba(20,20,22,.75);color:#fff;font-weight:800;letter-spacing:.12em;font-size:13px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 
@@ -147,6 +149,7 @@ button{font:inherit;color:inherit;cursor:pointer}
   <div class="brand"><b>REWINDCAM</b><i>HQ · VHS · AUTO</i></div>
   <div id="vf">
     <canvas id="screen" width="480" height="640"></canvas>
+    <div id="focusBox"></div>
     <button id="pauseBtn" class="hidden">❚❚ PAUSE</button>
   </div>
   <div class="bar bottom">
@@ -750,7 +753,7 @@ function renderSettings(){
     if (sec.foot){ const f = document.createElement('div'); f.className = 'foot'; f.textContent = sec.foot; body.appendChild(f); }
   }
   const ab = document.createElement('div'); ab.className = 'about';
-  ab.innerHTML = '<b>RewindCam 1.5 · Free Edition</b><br>Every feature unlocked. No ads, no upgrades, no tape limits.<br>Your videos stay on this device.';
+  ab.innerHTML = '<b>RewindCam 1.6 · Free Edition</b><br>Every feature unlocked. No ads, no upgrades, no tape limits.<br>Your videos stay on this device.';
   body.appendChild(ab);
   body.scrollTop = y;
 }
@@ -840,7 +843,34 @@ $('#importBtn').onclick = () => $('#fileIn').click();
 $('#fileIn').onchange = e => { importFile(e.target.files[0]); e.target.value = ''; };
 $('#bRec').onclick = () => { ensureAudio(); recState === 'idle' ? startRec() : stopRec(); };
 $('#pauseBtn').onclick = togglePause;
-$('#vf').addEventListener('click', () => { if (mode === 'file'){ unmuteFile(); if (fileVideo.paused) playFile(); } });
+let focusWarned = false, focusT;
+$('#vf').addEventListener('click', async e => {
+  if (mode === 'file'){ unmuteFile(); if (fileVideo.paused) playFile(); return; }
+  if (!videoTrack || e.target.closest('button')) return;
+  const caps = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
+  const fm = caps.focusMode || [];
+  if (!('pointsOfInterest' in caps) && !fm.length){
+    if (!focusWarned){ focusWarned = true; toast('Your camera focuses automatically. Safari doesn\u2019t let web apps pick a focus spot.', 3500); }
+    return;
+  }
+  // map the tap to the camera frame (undo crop, zoom and selfie mirror)
+  const r = cv.getBoundingClientRect();
+  let x = clamp((e.clientX - r.left) / r.width, 0, 1), y = clamp((e.clientY - r.top) / r.height, 0, 1);
+  const vw = camVideo.videoWidth || 1, vh = camVideo.videoHeight || 1, oa = cv.width / cv.height, va = vw / vh;
+  let sx = 1, sy = 1; if (va > oa) sx = oa / va; else sy = va / oa;
+  if (facing === 'user') x = 1 - x;
+  x = clamp((x - .5) * sx / zoom + .5, 0, 1); y = clamp((y - .5) * sy / zoom + .5, 0, 1);
+  const b = $('#focusBox'), vr = $('#vf').getBoundingClientRect();
+  b.style.left = (e.clientX - vr.left) + 'px'; b.style.top = (e.clientY - vr.top) + 'px';
+  b.classList.remove('on'); void b.offsetWidth; b.classList.add('on');
+  clearTimeout(focusT); focusT = setTimeout(() => b.classList.remove('on'), 1200);
+  const adv = {};
+  if ('pointsOfInterest' in caps) adv.pointsOfInterest = [{x, y}];
+  if (fm.includes('single-shot')) adv.focusMode = 'single-shot'; else if (fm.includes('continuous')) adv.focusMode = 'continuous';
+  if ((caps.exposureMode || []).includes('continuous')) adv.exposureMode = 'continuous';
+  buzz();
+  try { await videoTrack.applyConstraints({advanced:[adv]}); } catch(err) {}
+});
 $('#bMenu').onclick = () => { buzz(); if (busy()) return; renderSettings(); openSheet('#settings'); };
 $('#setDone').onclick = () => closeSheet('#settings');
 $('#bPlay').onclick = () => { buzz(); if (busy()) return; showTapes(); };
