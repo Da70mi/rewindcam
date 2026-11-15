@@ -685,6 +685,8 @@ const SCHEMA = [
   {sec:'QUICK LOOKS', items:[
     {t:'btn', l:'Clean Look (no text, no glitches)', b:'Apply', run:() => applyLook(CLEAN)},
     {t:'btn', l:'Classic VHS Look', b:'Apply', run:() => applyLook(CLASSIC)},
+    {k:'aspect', t:'seg', l:'Screen Shape', opts:[['4:3','4:3'],['16:9','16:9'],['full','Full']]},
+    {k:'rounded', t:'sw', l:'Rounded Screen Corners'},
   ]},
   {sec:'FUN STUFF', items:[
     {k:'spoof', t:'sw', l:'Spoof the Recording Date'},
@@ -708,8 +710,6 @@ const SCHEMA = [
   ], foot:'Turn off Tape Glitch Effects to keep only the color filter look, with no lines, static or wobble.'},
   {sec:'RECORDING STUFF', items:[
     {k:'cleanAudio', t:'sw', l:"Don't Degrade Audio (Clean Audio)"},
-    {k:'aspect', t:'seg', l:'Screen Shape', opts:[['4:3','4:3'],['16:9','16:9'],['full','Full']]},
-    {k:'rounded', t:'sw', l:'Rounded Screen Corners'},
     {k:'res', t:'seg', l:'Resolution', opts:[[480,'480p'],[720,'720p'],[1080,'1080p']]},
     {k:'fps', t:'seg', l:'Frame Rate', opts:[[24,'24'],[25,'25'],[30,'30'],[50,'50'],[60,'60']]},
   ], foot:'Higher resolution and frame rates make bigger files and work your phone harder.'},
@@ -750,7 +750,7 @@ function renderSettings(){
     if (sec.foot){ const f = document.createElement('div'); f.className = 'foot'; f.textContent = sec.foot; body.appendChild(f); }
   }
   const ab = document.createElement('div'); ab.className = 'about';
-  ab.innerHTML = '<b>RewindCam 1.0 · Free Edition</b><br>Every feature unlocked. No ads, no upgrades, no tape limits.<br>Your videos stay on this device.';
+  ab.innerHTML = '<b>RewindCam 1.5 · Free Edition</b><br>Every feature unlocked. No ads, no upgrades, no tape limits.<br>Your videos stay on this device.';
   body.appendChild(ab);
   body.scrollTop = y;
 }
