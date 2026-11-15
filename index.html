@@ -58,6 +58,19 @@ button{font:inherit;color:inherit;cursor:pointer}
 #app.full .brand{flex:1;visibility:hidden}
 #app.full .ctl>span{color:#eee;text-shadow:0 1px 3px #000}
 #app.full #pauseBtn{bottom:calc(env(safe-area-inset-bottom) + 150px)}
+@media (orientation: landscape){
+  #app{flex-direction:row}
+  .bar,.bar.bottom{flex-direction:column;justify-content:space-around;align-items:center;padding:8px 12px}
+  .brand{display:none}
+  #vf{border:0;border-left:2px solid #111;border-right:2px solid #111}
+  .key{width:46px;height:46px}
+  .reckey{width:64px;height:64px}
+  .ctl{gap:4px}
+  #app.full .bar.top{margin:0 0 0 calc(-1 * env(safe-area-inset-left));padding:8px 12px 8px calc(env(safe-area-inset-left) + 12px);background:linear-gradient(90deg,rgba(0,0,0,.6),rgba(0,0,0,0))}
+  #app.full .bar.bottom{margin:0 calc(-1 * env(safe-area-inset-right)) 0 0;padding:8px calc(env(safe-area-inset-right) + 12px) 8px 12px;background:linear-gradient(270deg,rgba(0,0,0,.6),rgba(0,0,0,0))}
+  #app.full .brand{display:block;flex:1;visibility:hidden}
+  #app.full #pauseBtn{bottom:calc(env(safe-area-inset-bottom) + 16px)}
+}
 #pauseBtn{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);border:0;border-radius:999px;padding:9px 18px;
   background:rgba(20,20,22,.75);color:#fff;font-weight:800;letter-spacing:.12em;font-size:13px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 
@@ -276,7 +289,7 @@ void main(){
   jit*=uFx; hs*=uFx; band*=uFx;
   vec2 p=vec2(uv.x+jit,uv.y);
 
-  float bw=max(1.,uRes.x/480.)/uRes.x;
+  float bw=max(1.,min(uRes.x,uRes.y)/480.)/uRes.x;
   vec3 a0=src(p-vec2(2.*bw,0.)),a1=src(p-vec2(bw,0.)),a2=src(p),a3=src(p+vec2(bw,0.)),a4=src(p+vec2(2.*bw,0.));
   float Y=.12*dot(a0,LW)+.2*dot(a1,LW)+.36*dot(a2,LW)+.2*dot(a3,LW)+.12*dot(a4,LW);
   // chroma: wide, delayed
@@ -347,7 +360,8 @@ function aspectRatio(){
   return S.aspect === '16:9' ? 16/9 : 4/3;
 }
 function resizeOutput(){
-  const W = S.res, H = Math.round(S.res * aspectRatio() / 2) * 2;
+  const sh = S.res, lg = Math.round(S.res * aspectRatio() / 2) * 2, land = innerWidth > innerHeight;
+  const W = land ? lg : sh, H = land ? sh : lg;
   $('#app').classList.toggle('full', S.aspect === 'full');
   cv.width = osd.width = W; cv.height = osd.height = H;
   if (gl) gl.viewport(0, 0, W, H);
@@ -358,7 +372,8 @@ function fitCanvas(){
   const k = (S.aspect === 'full' ? Math.max : Math.min)(r.width / cv.width, r.height / cv.height);
   cv.style.width = Math.floor(cv.width * k) + 'px'; cv.style.height = Math.floor(cv.height * k) + 'px';
 }
-addEventListener('resize', fitCanvas); addEventListener('orientationchange', () => setTimeout(fitCanvas, 300));
+function onResize(){ const land = innerWidth > innerHeight; if (recState === 'idle' && land !== (cv.width > cv.height)) resizeOutput(); else fitCanvas(); }
+addEventListener('resize', onResize); addEventListener('orientationchange', () => setTimeout(onResize, 300));
 
 const MON = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 const p2 = n => String(n).padStart(2, '0');
@@ -377,9 +392,10 @@ function fmtCounter(ms){ const s = Math.floor(ms / 1000); return `${Math.floor(s
 
 const OSDF = '"VT323","Courier New",monospace';
 function drawOSD(t){
-  const full = S.aspect === 'full', oy = full ? osd.height * .12 : 0;
-  const W = osd.width, H = osd.height - oy - (full ? osd.height * .19 : 0), s = W / 480, c = octx;
-  c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, W, osd.height); c.translate(0, oy);
+  const full = S.aspect === 'full', land = osd.width > osd.height;
+  const oy = full && !land ? osd.height * .12 : 0, ox = full && land ? osd.width * .12 : 0;
+  const W = osd.width - 2 * ox, H = osd.height - oy - (full && !land ? osd.height * .19 : 0), s = Math.min(osd.width, osd.height) / 480, c = octx;
+  c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, osd.width, osd.height); c.translate(ox, oy);
   c.lineJoin = 'round'; c.textBaseline = 'alphabetic';
   const txt = (str, x, y, size, align = 'left', col = '#f2f2f2') => {
     c.font = `${Math.round(size * s)}px ${OSDF}`; c.textAlign = align;
